@@ -26,7 +26,7 @@ public slots:
 private:
     int socketDescriptor_;
     QString text_;
-    QTcpSocket* socket_;
+    QTcpSocket* socket_ = nullptr;
 
    // QTcpSocket* socket;
    // qintptr socketDescriptor;

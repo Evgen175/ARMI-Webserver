@@ -27,7 +27,7 @@ private slots:
 
 private:
     Ui::MainWindow *ui;
-    http_server::HttpServer *HttpServer_;
+    http_server::HttpServer *HttpServer_ = nullptr;
     QHostAddress hostAddressARMI_;
     uint port_;
 };

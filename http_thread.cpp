@@ -11,6 +11,8 @@ void ServerThread::run()
 
     if (!socket_->setSocketDescriptor(socketDescriptor_)) {
       //  emit error(socket_->error());
+        delete socket_;
+        socket_ = nullptr;
         return;
     }
 
@@ -28,6 +30,8 @@ void ServerThread::run()
     socket_->write(response);
     socket_->disconnectFromHost();
     socket_->waitForDisconnected();
+    delete socket_;
+    socket_ = nullptr;
 
     //exec();
 }
@@ -41,5 +45,8 @@ void ServerThread::readyRead(/*QTcpSocket& socket*/){
 }
 void ServerThread::disconnected(){
     qDebug() << socketDescriptor_ << " Отсоединён";
-    //socket->deleteLater();
+    if (socket_) {
+        socket_->deleteLater();
+        socket_ = nullptr;
+    }
 }

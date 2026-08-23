@@ -155,20 +155,19 @@ public:
     }
     //template<typename field, typename value>
     void operator()(QByteArray name, QByteArray data){
-        if (find(name, data) == nullptr) serviceFields_.append({name, data});
+        if (find(name).isEmpty()) serviceFields_.append({name, data});
     }
 
     //--------------------------
-    QByteArray find(QString name, QByteArray data = nullptr) {
+    QByteArray find(QString name, QByteArray data = QByteArray()) {
 
-        for (auto it : serviceFields_) {
+        for (auto &it : serviceFields_) {
             if (static_cast<QString>(it.first) == name) {
-                if (data != nullptr) it.second = data;
-              //qDebug() << "RETURN " << it.second;
+                if (!data.isNull()) it.second = data;
                 return it.second;
             }
         }
-        return nullptr;
+        return QByteArray();
     }
 private:
 

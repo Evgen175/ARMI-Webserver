@@ -32,7 +32,7 @@ inline QString Hex2String(const QString& value){
             str += valtmp.at(t);
         }
     }
-    return str.toLatin1().toStdString().data();
+    return str;
 }
 
 
@@ -64,7 +64,7 @@ public:
                     response.body(file_handler::STATUS::METHOD_NOT_ALLOWED);
                 }
                 else
-                if (target.at(1) == "API") {
+                if (target.size() > 2 && target.at(1) == "API") {
                     if (target.at(2) == "LOG") {
 
                        // qDebug() << " +++++++++++++++" << target;
@@ -94,9 +94,13 @@ public:
             qDebug() << "API = " << tmpPath;
             } // GET
 
-        qDebug() <<  "РАЗМЕР = " << (response.body().size() - 1) * file_handler::SIZE_BLOCK + response.body().last().size() << request.target();
-       // qDebug() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" << response.body().at(0).left(100) << "\n~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-        response("Content-Length", QString::number((response.body().size() - 1) * file_handler::SIZE_BLOCK + response.body().last().size()).toLocal8Bit());
+        qint64 contentLength = 0;
+        if (!response.body().isEmpty()) {
+            contentLength = (response.body().size() - 1) * file_handler::SIZE_BLOCK
+                            + response.body().last().size();
+        }
+        qDebug() <<  "РАЗМЕР = " << contentLength << request.target();
+        response("Content-Length", QString::number(contentLength).toLocal8Bit());
 
 
 

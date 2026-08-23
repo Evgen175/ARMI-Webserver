@@ -82,8 +82,7 @@ private slots:
     void slotDisconnectEvent()
     {
         socket_->disconnect(this);
-        auto rt = "Disconnected" + socket_->peerAddress().toString();
-        destroyed();
+        deleteLater();
 }
 
 private:
@@ -147,25 +146,18 @@ public slots:
 
 protected:
     void incomingConnection(qintptr socketDescriptor) override {
-        SessionBase *sessionBase_ = new SessionBase(socketDescriptor);
+        SessionBase *session = new SessionBase(socketDescriptor);
         QThread* thread = new QThread();
-        sessionBase_->moveToThread(thread);
-        connect(thread, &QThread::started, [sessionBase_](){
-            sessionBase_->slotNewConnection();
-        });
-        connect(thread, &QThread::finished, thread, &QThread::deleteLater);
-        connect(sessionBase_, &SessionBase::destroyed, thread, &QThread::quit);
-        connect(sessionBase_, &SessionBase::destroyed, [sessionBase_]() {
-            qDebug() << "DELETE_LETER " << QThread::currentThreadId();
-            sessionBase_->deleteLater();
-        });
-        connect(sessionBase_, &SessionBase::Logger::signalSendLog, [=](QString mess){emit signalMessage(mess);});
-        qDebug() << "QThread::currentThreadId()" << QThread::currentThreadId();
+        session->moveToThread(thread);
+        connect(thread, &QThread::started, session, &SessionBase::slotNewConnection);
+        connect(session, &QObject::destroyed, thread, &QThread::quit);
+        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+        connect(session, &Logger::signalSendLog, this, &HttpServer::signalMessage);
         thread->start();
     }
 
 private:
-    SessionBase *session_;
+    SessionBase *session_ = nullptr;
     QHostAddress hostAddressARMI_;
     uint port_;
     QMap <int, int> mapUsersConnected;

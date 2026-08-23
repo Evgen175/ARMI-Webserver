@@ -61,16 +61,15 @@ int main(int argc, char *argv[])
 
 
     pathData_ = argv[1] == nullptr ? "/home/astra/UKK_29M_Rus/UKK_LS_29M_Common/Data" : argv[1];
-    if (!QDir(argv[1]).exists()){
-        qDebug() << "Путь не найден " << argv[1];
+    if (!QDir(pathData_).exists()){
+        qDebug() << "Путь не найден " << pathData_;
         exit(1);
     }
-    pathArmXML_ = argc == 1 ? QApplication::applicationDirPath() : argv[2];
+    pathArmXML_ = argc > 2 ? argv[2] : QApplication::applicationDirPath();
 
 
     qDebug() << pathData_ << "\n" << pathArmXML_;
 
-    auto api_strand = std::make_shared<http_handler::RequestHandler>();
   //  RunWorker(std::max(1u, num_thread), [&ioc]{
        // ioc.run();
   //  });

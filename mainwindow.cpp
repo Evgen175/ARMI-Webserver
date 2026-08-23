@@ -8,7 +8,7 @@ MainWindow::MainWindow(QHostAddress addr, uint port, QWidget *parent)
     , port_(port)
 {
     ui->setupUi(this);
-    HttpServer_ = new http_server::HttpServer(hostAddressARMI_, port_);
+    HttpServer_ = new http_server::HttpServer(hostAddressARMI_, port_, this);
 
     connect(HttpServer_, &http_server::HttpServer::signalMessage, this, &MainWindow::slotReciveMessage);
     ui->textOut->append("Количество потоков = ");

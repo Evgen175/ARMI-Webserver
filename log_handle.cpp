@@ -129,6 +129,7 @@ bool LogHandler::operator()(QString strFileXML, QByteArray byteArray) {
             }
             domElement.appendChild(domE);
         }
+        xmlFile.close();
         //запись QDomDocument в xml файл
       return  WriteDocXML(domDocXML, strFileXML);
 }
