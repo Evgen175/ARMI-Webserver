@@ -8,7 +8,9 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QMessageBox>
-#include <qthread.h>
+#include <QThread>
+#include <QThreadPool>
+#include <QRunnable>
 #include <QElapsedTimer>
 #include <QUrl>
 
@@ -22,9 +24,11 @@ public:
 
     void sendMes (QStringList mess)
     {
-        auto messS = QDateTime::currentDateTime().toString("dd.MM.yyyy HH:mm:ss").toLatin1() + "   ";
-        for ( auto it : mess)
-        messS += it + "  ";
+        QString messS = QDateTime::currentDateTime().toString(QStringLiteral("dd.MM.yyyy HH:mm:ss"))
+                        + QLatin1String("   ");
+        for (const QString& it : mess) {
+            messS += it + QLatin1String("  ");
+        }
         emit signalSendLog(messS);
     }
 signals:
@@ -34,93 +38,28 @@ signals:
 
 namespace http_server {
 
-class SessionBase : public Logger
+class SessionTask : public QObject, public QRunnable
 {
     Q_OBJECT
-    QByteArray byteArray_{};
-    ElementBody request_;
-    qintptr descriptor_;
-    QTcpSocket* socket_;
-    http_handler::RequestHandler handler_;
-    QElapsedTimer timeStart_;
 public:
-    explicit SessionBase(qintptr descriptor, QObject* parent = 0)
-        : Logger(parent), descriptor_(descriptor)
+    explicit SessionTask(qintptr descriptor)
+        : descriptor_(descriptor)
     {
-        socket_ = new QTcpSocket(this);
-        if (!socket_->setSocketDescriptor(descriptor_)){
-            QString err = socket_->errorString();
-            auto addr =socket_->peerAddress().toString();
-            Logger::sendMes({addr, err});
-            QMessageBox::critical(0, "Error", "Connection errore", socket_->errorString());
-        }
-    }
-//-------------------------------------------------------
-    void slotNewConnection()//ДЛЯ СЕТИ
-    {
-        connect(socket_, &QTcpSocket::disconnected, this, &SessionBase::slotDisconnectEvent);//отключившийся обучаемый
-        connect(socket_, &QTcpSocket::readyRead, this, &SessionBase::slotRequestRead);//получение от АРМО
+        setAutoDelete(true);
     }
 
-    ~SessionBase(){
-//        logger_.Message("~SessionBase()");
-      //  emit destroyed();
-    };
+    void run() override;
 
-private slots:
-    void slotRequestRead()
-    {
-        timeStart_.start();
-        byteArray_ = socket_->readAll();
-        socket_->waitForReadyRead(1);
-        request_.clear();
-        request_(byteArray_);
-
-        onRead();
-    }
-
-    void slotDisconnectEvent()
-    {
-        socket_->disconnect(this);
-        deleteLater();
-}
+signals:
+    void signalSendLog(QString mess);
 
 private:
+    QByteArray readHttpRequest(QTcpSocket& socket);
 
-    void onRead(){
-        writeResponse(handler_(request_));
-    }
-
-
-    void writeResponse(const ElementBody&& resp)
-    {
-        ElementBody response = std::move(resp);
-        socket_->write(response.version() + " " + response.status() + "\r\n");
-        for (auto it : response.elements()) // ОСТАЛЬНЫЕ ПОЛЯ
-        {
-            socket_->write(it.first + ": " + it.second + "\r\n");
-        }
-
-        // ПРИМЕР auto response_ = "HTTP/1.1 200 OK\r\nContent-Length: " + QString::number(str.toUtf8().size()) + "\r\n\r\n" + str;
-        socket_->write("\r\n");
-        for (auto it : response.body() ){// Тело ответа
-            socket_->write(it);
-        }
-        socket_->flush();
-        QStringList tm;
-        tm.append(request_.target() == "/API/LOG" ? request_.find("PATH") : socket_->peerAddress().toString().split(":").last());
-        tm.append({response.status()
-                    , QUrl::fromPercentEncoding(request_.target().toLatin1())
-                    , request_.find("PATH").data()
-                    , QString::number((qint64)timeStart_.elapsed()) + " msec"});
-        Logger::sendMes(tm);
-        socket_->close();
-        qDebug() << "CLOSE " << socket_->flush();
-    }
+    qintptr descriptor_;
 };
 
 
-//-------------------------------------------------------------
 class HttpServer : public QTcpServer
 {
     Q_OBJECT
@@ -130,42 +69,34 @@ public:
     HttpServer(QHostAddress hostAddressARMI, uint port, QObject* parent = 0)
         : QTcpServer(parent), hostAddressARMI_(hostAddressARMI), port_(port)
     {
-        if (!listen(hostAddressARMI_, port_)) //установка номера порта
+        QThreadPool::globalInstance()->setMaxThreadCount(
+                    qMax(4, QThread::idealThreadCount() * 2));
+        if (!listen(hostAddressARMI_, port_))
         {
             QMessageBox::critical(0,"Сервер","Сервер не запущен\n" + errorString());
             close();
-            std::exit(0);
         }
     };
-
-
-//    Logger logger_;
 
 public slots:
     void slotSendMessage(QString messag);
 
 protected:
     void incomingConnection(qintptr socketDescriptor) override {
-        SessionBase *session = new SessionBase(socketDescriptor);
-        QThread* thread = new QThread();
-        session->moveToThread(thread);
-        connect(thread, &QThread::started, session, &SessionBase::slotNewConnection);
-        connect(session, &QObject::destroyed, thread, &QThread::quit);
-        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-        connect(session, &Logger::signalSendLog, this, &HttpServer::signalMessage);
-        thread->start();
+        auto *task = new SessionTask(socketDescriptor);
+        connect(task, &SessionTask::signalSendLog, this, &HttpServer::signalMessage,
+                Qt::QueuedConnection);
+        QThreadPool::globalInstance()->start(task);
     }
 
 private:
-    SessionBase *session_ = nullptr;
     QHostAddress hostAddressARMI_;
     uint port_;
-    QMap <int, int> mapUsersConnected;
 
 signals:
     void signalMessage(QString messag);
 };
 
 
-} //namespase
+} // namespace
 #endif // HTTP_SERVER_H

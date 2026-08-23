@@ -3,6 +3,8 @@
 #include <QList>
 #include <QDebug>
 #include <QFile>
+#include <QFileInfo>
+#include <QDir>
 
 /// служедные поля запроса / ответа
 using ServiceFields = QList<QPair<QByteArray, QByteArray>>;
@@ -26,7 +28,7 @@ static QList <QPair<QString, QList<QString>>> extension_{
     , {"audio/mpeg", {".mp3"}}
     , {"application/x-shockwave-flash", {".swf"}}
     , {"video/x-msvideo", {".avi"}}
-    , {"video/mp4", {"mp4"}}
+    , {"video/mp4", {".mp4"}}
     , {"application/octet-stream", {".fbx"}}
 };
 //----------------------------------------------------
@@ -34,61 +36,96 @@ static QString FindExtension(const QString extension) {
     for (const auto it : extension_) {
         for (const auto& it_se : it.second) {
             if (it_se == extension) {
-                return  it.first;//. it.data()->toStdString();
-                break;
+                return  it.first;
             }
         }
     }
     return "application/octet-stream";
 }
+
+/// true, если path лежит внутри root (после clean/canonical).
+inline bool PathIsUnderRoot(const QString& root, const QString& path)
+{
+    if (root.isEmpty() || path.isEmpty()) {
+        return false;
+    }
+    QString rootCanon = QDir(root).canonicalPath();
+    if (rootCanon.isEmpty()) {
+        rootCanon = QDir::cleanPath(QDir(root).absolutePath());
+    }
+    const QFileInfo fi(QDir::cleanPath(QDir::fromNativeSeparators(path)));
+    QString target = fi.exists() ? fi.canonicalFilePath() : QDir::cleanPath(fi.absoluteFilePath());
+    if (rootCanon.isEmpty() || target.isEmpty()) {
+        return false;
+    }
+    const QString rootNative = QDir::toNativeSeparators(rootCanon);
+    const QString targetNative = QDir::toNativeSeparators(target);
+#ifdef Q_OS_WIN
+    const Qt::CaseSensitivity cs = Qt::CaseInsensitive;
+#else
+    const Qt::CaseSensitivity cs = Qt::CaseSensitive;
+#endif
+    if (targetNative.compare(rootNative, cs) == 0) {
+        return true;
+    }
+    QString prefix = rootNative;
+    if (!prefix.endsWith(QDir::separator())) {
+        prefix += QDir::separator();
+    }
+    return targetNative.startsWith(prefix, cs);
+}
 //----------------------------------------------------
 class ElementBody {
 public:
     struct STATUS {
-        const QString OK = "200 OK"; // хорошо
-        const QString BAD_RREQUEST = "400 Bad Request"; // неправильный, некорректный запрос
-        const QString NOT_FOUND = "404 Not Found"; // не найдено
-        const QString METHOD_NOT_ALLOWED = "405 Method Not Allowed"; //метод не поддерживается
+        const QString OK = "200 OK";
+        const QString BAD_RREQUEST = "400 Bad Request";
+        const QString FORBIDDEN = "403 Forbidden";
+        const QString NOT_FOUND = "404 Not Found";
+        const QString METHOD_NOT_ALLOWED = "405 Method Not Allowed";
     };
 
     ElementBody(){}
     ~ElementBody() = default;
     void operator() (QByteArray& byteArray){
-   //     qDebug() << "\n===========START======================";
         requestByte_ = std::move(byteArray);
         auto tmp = requestByte_.split('\n');
-        auto headRequest = tmp.at(0).split(' ');
-
-        if (headRequest.count() == 3 ) {
-            method_ = headRequest.at(0);
-            target_ = headRequest.at(1);
-            version_ = headRequest.at(2).left(headRequest.at(2).size() - 1);
+        if (tmp.isEmpty()) {
+            return;
+        }
+        auto headRequest = tmp.at(0).trimmed().split(' ');
+        if (headRequest.size() >= 2) {
+            method_ = QString::fromUtf8(headRequest.at(0).trimmed());
+            target_ = QString::fromUtf8(headRequest.at(1).trimmed());
+            version_ = headRequest.size() >= 3
+                    ? QString::fromUtf8(headRequest.at(2).trimmed())
+                    : QStringLiteral("HTTP/1.1");
 
             for (int index = 1; tmp.size() > index; ++index)
             {
-                auto ind = tmp.at(index).indexOf(": ");
-                if (ind > 0)
-                    serviceFields_.append({tmp.at(index).left(ind), tmp.at(index).right(tmp.at(index).size() - ind - 2).split('\r').first()});
+                auto line = tmp.at(index).trimmed();
+                if (line.isEmpty()) {
+                    break;
+                }
+                const int ind = line.indexOf(':');
+                if (ind > 0) {
+                    serviceFields_.append({line.left(ind).trimmed(),
+                                           line.mid(ind + 1).trimmed()});
+                }
             }
-         //   qDebug() << requestByte_.data() << "\n ===========END======================\n";
-
-            return;
         }
     }
 
-    ///------ Коструктор копирования ---------------------------------------
-    ElementBody(const ElementBody& eb) noexcept
+    ElementBody(const ElementBody& eb)
     {
-        requestByte_   = eb.requestByte_; // Входящий поток данных / тело ответа
+        requestByte_   = eb.requestByte_;
         body_          = eb.body_;
-        method_        = eb.method_; // Используемый метод запроса
-        target_        = eb.target_; // тело запроса
-        version_       = eb.version_; // Версия запроса / ответа
-        serviceFields_ = eb.serviceFields_; // служедные поля запроса / ответа
-        status_        = eb.status_; // статус ответа
+        method_        = eb.method_;
+        target_        = eb.target_;
+        version_       = eb.version_;
+        serviceFields_ = eb.serviceFields_;
+        status_        = eb.status_;
     }
-
-    //---------------------------------------------
 
     ServiceFields elements(){
         return serviceFields_;
@@ -117,16 +154,15 @@ public:
     }
 
     QByteArray version(){
-        return version_.toLocal8Bit();
+        return version_.toUtf8();
     };
 
-  //  template<typename T>
     void version(QString version)
     {
         version_ = version;
     }
     QByteArray status() {
-        return status_.toLocal8Bit();
+        return status_.toUtf8();
     }
 
    void status(QString status) {
@@ -149,20 +185,17 @@ public:
         requestByte_ = std::move(response);
     }
 
-   // template<typename field, typename value>
     ElementBody(QByteArray name, QByteArray data){
         serviceFields_.append({std::move(name), std::move(data)});
     }
-    //template<typename field, typename value>
     void operator()(QByteArray name, QByteArray data){
         if (find(name).isEmpty()) serviceFields_.append({name, data});
     }
 
-    //--------------------------
     QByteArray find(QString name, QByteArray data = QByteArray()) {
 
         for (auto &it : serviceFields_) {
-            if (static_cast<QString>(it.first) == name) {
+            if (QString::fromLatin1(it.first).compare(name, Qt::CaseInsensitive) == 0) {
                 if (!data.isNull()) it.second = data;
                 return it.second;
             }
@@ -170,34 +203,26 @@ public:
         return QByteArray();
     }
 private:
-
-    /// Входящий поток данных
     QByteArray requestByte_;
-    /// Тело ответа
     BodyResponse body_;
-    /// Используемый метод запроса
     QString method_;
-    /// тело запроса
     QString target_;
-    /// Версия запроса / ответа
     QString version_;
-    /// служедные поля запроса / ответа
     ServiceFields serviceFields_;
-    /// статус ответа
     QString status_;
-
-
 };
 //----------------------------------------------------
 
 namespace file_handler {
 
 struct STATUS {
-    constexpr static  const char* OK                    = "200 OK"; // хорошо
-    constexpr static  const char* BAD_RREQUEST          = "400 Bad Request"; // неправильный, некорректный запрос
-    constexpr static  const char* NOT_FOUND             = "404 Not Found"; // не найдено
-    constexpr static  const char* METHOD_NOT_ALLOWED    = "405 Method Not Allowed"; //метод не поддерживается
-    constexpr static  const char* NOT_IMPLEMENTED       = "501 Not Implemented"; //не реализовано
+    constexpr static  const char* OK                    = "200 OK";
+    constexpr static  const char* BAD_RREQUEST          = "400 Bad Request";
+    constexpr static  const char* FORBIDDEN             = "403 Forbidden";
+    constexpr static  const char* NOT_FOUND             = "404 Not Found";
+    constexpr static  const char* METHOD_NOT_ALLOWED    = "405 Method Not Allowed";
+    constexpr static  const char* NOT_IMPLEMENTED       = "501 Not Implemented";
+    constexpr static  const char* INTERNAL_ERROR        = "500 Internal Server Error";
 };
 
 const int SIZE_BLOCK = 1024;
@@ -206,15 +231,21 @@ class FileHandler{
 
 public:
     ElementBody MakeFileResponse(ElementBody& response, QString pathFile) {
-        QString fileName = pathFile.split(("/"), QString::SkipEmptyParts).last();
-        auto fileExten = fileName.mid(fileName.lastIndexOf(QRegExp("[.]"), fileName.size())).toLower();
-        qDebug() << "MakeFileResponse " << fileExten << fileExten.size() << "CONTA  " << fileName.contains(".");
-        if (fileName.contains(".") == true)
+        const QFileInfo info(pathFile);
+        const QString fileName = info.fileName();
+        const QString fileExten = info.suffix().isEmpty()
+                ? QString()
+                : QStringLiteral(".") + info.suffix().toLower();
+        qDebug() << "MakeFileResponse " << fileExten << fileName;
+        if (!fileExten.isEmpty())
         {
             QFile file(pathFile);
             if (file.exists()){
-                file.open(QIODevice::ReadOnly);
-             //   qDebug() << "EXIST " << pathFile;
+                if (!file.open(QIODevice::ReadOnly)) {
+                    response.status(file_handler::STATUS::INTERNAL_ERROR);
+                    response.body("cannot open file");
+                    return response;
+                }
                 response.status(file_handler::STATUS::OK);
                 response("Content-Type", FindExtension(fileExten).toUtf8());
                 while (file.bytesAvailable())
@@ -225,7 +256,7 @@ public:
             }
             else {
                 response.status(file_handler::STATUS::NOT_FOUND);
-                response.body("file not found " + pathFile.toLocal8Bit());
+                response.body("file not found");
             }
 
         } else {
@@ -241,5 +272,5 @@ public:
         return MakeFileResponse(response, path);
     }
 };
-} // namespase
+} // namespace
 #endif // FILE_HANDLER_H

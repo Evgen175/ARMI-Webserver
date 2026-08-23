@@ -1,0 +1,20 @@
+---
+description: Never add co-authors to git commits or pull requests
+alwaysApply: true
+---
+
+# No co-authors
+
+Do not add anyone as a co-author. Commits and PRs must have a single author — the repository owner / whoever runs `git commit`.
+
+- Do not add `Co-authored-by` trailers (Cursor, Copilot, other agents, or people).
+- Do not pass `--trailer`, `git interpret-trailers`, or extra `-m` blocks that name co-authors.
+- Do not put "Co-authored-by" in the PR body or commit message footer.
+
+```text
+# ❌ BAD
+git commit -m "Fix encoding" -m "Co-authored-by: Cursor <cursoragent@cursor.com>"
+
+# ✅ GOOD
+git commit -m "Fix encoding"
+```

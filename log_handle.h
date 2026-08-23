@@ -2,6 +2,7 @@
 #define HANDLEXML_H
 
 #include <QDebug>
+#include <QObject>
 #include <qstring.h>
 #include <QDir>
 #include <QXmlStreamWriter>
@@ -24,8 +25,6 @@ private:
     QByteArray message_;
     QString strFileXML_;
 
-    ///сохранение результатов экзамена в Log_NN.xml
-    void SaveTraineeLog(int intTraineeId,QString strMode,QMap<QString,QString> mapLog);
     bool WriteDocXML(QDomDocument domDocXML, QString strFile);
 
 };

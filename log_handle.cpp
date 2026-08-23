@@ -1,20 +1,38 @@
 #include "log_handle.h"
 
+#include <QFile>
+#include <QFileInfo>
+#include <QLockFile>
+#include <QMap>
+#include <QSaveFile>
+#include <QRegExp>
+#include <QXmlStreamWriter>
+
 
 namespace HANDLER_LOG {
 
-
+static QString SafeXmlName(QString name)
+{
+    name.replace(QRegExp("[^A-Za-z0-9_.-]"), "_");
+    if (name.isEmpty() || (!name[0].isLetter() && name[0] != QLatin1Char('_'))) {
+        name.prepend(QLatin1Char('_'));
+    }
+    return name.left(64);
+}
 
 bool LogHandler::operator()(QString strFileXML, QByteArray byteArray) {
     message_ = byteArray;
     auto tmpArray = message_.split('|');
     strFileXML_ = strFileXML;
 
+    const QString dirPath = QFileInfo(strFileXML_).absolutePath();
+    if (!QDir(dirPath).exists()) return false;
 
-  //  qDebug() << message_.data() << "\n" << message_.toStdString().c_str();
-
-
-    if (!QDir(strFileXML_.left(strFileXML_.size() - strFileXML_.split("/").last().size() )).exists()) return false;
+    QLockFile lockFile(strFileXML_ + QLatin1String(".lock"));
+    lockFile.setStaleLockTime(10000);
+    if (!lockFile.tryLock(3000)) {
+        return false;
+    }
 
 
 
@@ -24,14 +42,16 @@ bool LogHandler::operator()(QString strFileXML, QByteArray byteArray) {
     for (int i = 1; tmpArray.size() > i; ++i) {
         auto spl = tmpArray.at(i).split('=');
       //  qDebug() << spl.first() << "\t" << spl.last().data();
-        mapLog.insert(spl.first(), spl.last().data());
+        mapLog.insert(QString::fromUtf8(spl.first()), QString::fromUtf8(spl.last()));
     }
         //открытие и чтение .xml
         //если файла нет, то создаем
         QFile fileXML(strFileXML_);
         if (!fileXML.exists())
         {
-            fileXML.open(QIODevice::WriteOnly);
+            if (!fileXML.open(QIODevice::WriteOnly)) {
+                return false;
+            }
             QXmlStreamWriter xmlStreamWriter(&fileXML);
             xmlStreamWriter.setAutoFormatting(true);
             xmlStreamWriter.writeStartDocument();
@@ -41,7 +61,9 @@ bool LogHandler::operator()(QString strFileXML, QByteArray byteArray) {
             fileXML.close();
         }
         QFile xmlFile(strFileXML_);
-        xmlFile.open(QIODevice::ReadWrite);//открытие и чтение .xml
+        if (!xmlFile.open(QIODevice::ReadWrite)) {
+            return false;
+        }
         QDomDocument domDocXML;
         domDocXML.setContent(xmlFile.readAll());
         QDomElement domElement = domDocXML.documentElement(); //Получение Root Element
@@ -106,7 +128,7 @@ bool LogHandler::operator()(QString strFileXML, QByteArray byteArray) {
                         QString strQuestionKey = it.key().section(":", 0, 0);
                         QString strAnswer = it.key().section(":", 1);
                         QString strQuestion=it.value();
-                        QDomElement domEQ=domDocXML.createElement(strQuestionKey);//ключ
+                        QDomElement domEQ=domDocXML.createElement(SafeXmlName(strQuestionKey));
                         domEQ.setAttribute("Question", strQuestion);
                         domEQ.setAttribute("Answer", strAnswer);
                         domE.appendChild(domEQ);
@@ -118,7 +140,7 @@ bool LogHandler::operator()(QString strFileXML, QByteArray byteArray) {
         }
         else //LOG
         {   //добавляем время обучения
-            QDomElement domE=domDocXML.createElement(mapLog["Key"]);
+            QDomElement domE=domDocXML.createElement(SafeXmlName(mapLog["Key"]));
             //цикл по списку mapLog
             QMap<QString,QString>::iterator it=mapLog.begin();
             for ( ; it != mapLog.end(); it++)
@@ -136,46 +158,20 @@ bool LogHandler::operator()(QString strFileXML, QByteArray byteArray) {
 //================================================================================
 bool LogHandler::WriteDocXML(QDomDocument domDocXML, QString strFile)
 {
-    bool blnOk=false;
-    //открытие и чтение .xml
     QFile fileXML;
-    if (!fileXML.exists(strFile))
-    {
-        //QMessageBox msgBox;
-//        msgBox.setIcon(QMessageBox::Critical);
-//        msgBox.setText("Файл не найден: \n"+strFile);
-//        msgBox.exec();
+    if (QFile::exists(strFile + ".bak")) {
+        QFile::remove(strFile + ".bak");
     }
-    else
-    {
-        //копия старого
-        if (fileXML.exists(strFile+".bak")) fileXML.remove(strFile+".bak");
-        fileXML.copy(strFile, strFile+".bak");
-        //Открытие файла для записи
-        fileXML.setFileName(strFile);
-        if (!fileXML.open(QIODevice::ReadWrite))
-        {
-//            QMessageBox msgBox;
-//            msgBox.setIcon(QMessageBox::Critical);
-//            msgBox.setText("Файл для записи не открывается: \n"+strFile);
-//            msgBox.exec();
-        }
-        else
-        {
-            //обнуление и запись domDocXML в fileXML
-            fileXML.resize(0);
-            if (!fileXML.write(domDocXML.toByteArray()))
-            {
-//                fileXML.close();
-//                QMessageBox msgBox;
-//                msgBox.setIcon(QMessageBox::Critical);
-//                msgBox.setText("Ошибка записи в файл: \n"+strFile);
-//                msgBox.exec();
-            }
-            else blnOk=true;
-            fileXML.close();
-        }
+    if (QFile::exists(strFile)) {
+        QFile::copy(strFile, strFile + ".bak");
     }
-    return blnOk;
+    QSaveFile saveFile(strFile);
+    if (!saveFile.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    if (saveFile.write(domDocXML.toByteArray()) < 0) {
+        return false;
+    }
+    return saveFile.commit();
 }
 } // namespace

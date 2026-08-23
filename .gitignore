@@ -1,0 +1,6 @@
+build/
+*.user
+.qmake.stash
+moc_*.cpp
+ui_*.h
+object_script.*

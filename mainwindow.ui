@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>ARMI Webserver</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QGridLayout" name="gridLayout">
@@ -35,7 +35,7 @@
         <item>
          <widget class="QPushButton" name="pushButton">
           <property name="text">
-           <string>Отчистка HTML</string>
+           <string>Очистка HTML</string>
           </property>
          </widget>
         </item>
@@ -76,7 +76,7 @@
            <item>
             <widget class="QLabel" name="label_3">
              <property name="text">
-              <string>Запросы с ошибоками</string>
+              <string>Запросы с ошибками</string>
              </property>
              <property name="alignment">
               <set>Qt::AlignCenter</set>
